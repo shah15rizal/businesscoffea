@@ -1,0 +1,401 @@
+---
+title: "Coffea Shop Business Analysis"
+author: "Shahrizal"
+date: "2026-05-03"
+output: word_document
+---
+
+![](https://backend.parador-hotels.com/wp-content/uploads/2025/04/Coffee-Shop-Estetik-di-Dekat-Bandara.webp)
+
+```{r setup, include=TRUE}
+# Data manipulation
+library(tidyverse)
+library(dplyr)
+library(lubridate)
+library(stringr)
+library(readxl)
+
+# Visualization
+library(ggplot2)
+library(plotly)
+
+# SQL Query
+library(sqldf)
+
+# Dashboard
+library(shiny)
+
+# Data table
+library(DT)
+```
+
+## Import Data
+
+```{r data, include=TRUE}
+setwd("D:/09 freelance/busines case/portofolio 1/archive")
+data <- read.csv("D:/09 freelance/busines case/portofolio 1/archive/index_1.csv")
+str(data)
+coffee <- data
+summary(coffee)
+head(coffee)
+```
+
+#### Reformat data
+
+```{r rfm, include=TRUE}
+# Convert date
+coffee$date <- as.Date(coffee$date)
+coffee$datetime <- ymd_hms(coffee$datetime)
+
+# Missing value check
+colSums(is.na(coffee))
+
+# Duplicate Check
+sum(duplicated(coffee))
+
+# Feature Engineering
+# Menambahkan Jam, Hari, dan Bulan
+new_data <- coffee %>%
+  mutate(
+    hour = hour(datetime),
+    day = weekdays(date),
+    month = month(date, label = TRUE)
+  )
+
+head(new_data)
+```
+
+## Exploratory Data Analysis (EDA)
+
+#### **A. Total Revenue**
+
+**Insight :**
+
+-   Mengukur total endapatan perusahaan.
+
+-   Menjadi KPI utama bisnis.
+
+```{r trv, include=TRUE}
+library(tibble)
+
+total_revenue <- sum(new_data$money)
+
+total_transaction <- nrow(new_data)
+
+revenue_table <- tibble(
+  No = 1,
+  Total_Revenue = total_revenue,
+  Total_Transaction = total_transaction
+)
+
+revenue_table
+```
+
+#### **B. Top Selling Product**
+
+Menghitung atau produk apa yang paling laku/laris bagi konsumen
+
+```{r topselprod, include=TRUE}
+top_product_table <- new_data %>%
+  group_by(coffee_name) %>%
+  summarise(
+    total_sales = n(),
+    total_revenue = sum(money)
+  ) %>%
+  arrange(desc(total_sales)) %>%
+  mutate(No = row_number()) %>%
+  select(No, coffee_name, total_sales, total_revenue)
+
+top_product_table
+```
+
+**Visualisasi Produk Terlaris**
+
+```{r viztpp, include=TRUE}
+ggplot(top_product_table,
+       aes(x = reorder(coffee_name, total_sales),
+           y = total_sales)) +
+  geom_col() +
+  coord_flip() +
+  labs(
+    title = "Top Selling Coffee",
+    x = "Coffee",
+    y = "Total Sales"
+  )
+```
+
+**Business Insight**
+
+-   Produk dengan penjualan tertinggi menjadi core product.
+
+-   Produk dengan revenue tinggi cocok untuk strategi bundling.
+
+-   Produk dengan penjualan rendah perlu evaluasi.
+
+#### **C. Revenue by Product**
+
+```{r revprod, include=TRUE}
+revenue_product <- new_data %>%
+  group_by(coffee_name) %>%
+  summarise(revenue = sum(money)) %>%
+  arrange(desc(revenue)) %>%
+  mutate(No = row_number()) %>%
+  select(No, coffee_name, revenue)
+
+revenue_product
+```
+
+#### **D. Peak Hour Analysis**
+
+```{r peak_hour, include=TRUE}
+peak_hour <- new_data %>%
+  group_by(hour) %>%
+  summarise(total_transaction = n()) %>%
+  arrange(desc(total_transaction)) %>% 
+  mutate(No = row_number()) %>% 
+  select(No, hour, total_transaction)
+
+peak_hour
+```
+
+```{r vispeakhour, include=TRUE}
+ggplot(peak_hour,
+       aes(x = hour,
+           y = total_transaction)) +
+  geom_line() +
+  geom_point() +
+  labs(
+    title = "Peak Hour Transactions",
+    x = "Hour",
+    y = "Transactions"
+  )
+
+```
+
+**Business Insight**
+
+-   Menentukan jam sibuk operasional.
+
+-   Membantu pengaturan shift karyawan.
+
+-   Menentukan waktu promo.
+
+Contoh:
+
+peak hour terjadi pukul 08:00–10:00:
+
+-   Perlu adanya staff pagi.
+
+-   Menyiapkan stok susu, espresso dan produk yang terlaris lebih banyak.
+
+#### **E. Payment Method Analysis**
+
+Menentukan tipe pembayaran apa saja dan apa yang paling banyak digunakan oleh pelanggan.
+
+```{r pay, include=TRUE}
+library(scales)
+
+# Payment analysis
+payment_analysis <- new_data %>%
+  group_by(cash_type) %>%
+  summarise(total_transaction = n()) %>%
+  mutate(
+    percentage = total_transaction / sum(total_transaction),
+    label = paste0(
+      total_transaction,
+      " (",
+      percent(percentage),
+      ")"
+    )
+  )
+
+# Pie Chart
+ggplot(payment_analysis,
+       aes(x = "",
+           y = total_transaction,
+           fill = cash_type)) +
+  geom_col(width = 1, color = "white") +
+  coord_polar(theta = "y") +
+  
+  geom_text(aes(label = label),
+            position = position_stack(vjust = 0.5),
+            size = 5) +
+  
+  labs(
+    title = "Payment Method Distribution",
+    fill = "Payment Type"
+  ) +
+  
+  theme_void()
+```
+
+**Business Insight**
+
+Pelanggan mayoritas menggunakan pembayaran non tunai untuk membeli sebuah produk. Hal ini dapat menentukan strategi cashback dan mengoptimalkan QR payment.
+
+#### **F. Daily Revenue Trend**
+
+```{r daily, include=TRUE}
+daily_sales <- new_data %>%
+  group_by(date) %>%
+  summarise(daily_revenue = sum(money))
+ggplot(daily_sales,
+       aes(x = date,
+           y = daily_revenue)) +
+  geom_line() +
+  labs(
+    title = "Daily Revenue Trend",
+    x = "Date",
+    y = "Revenue"
+  )
+
+```
+
+**Business Insight**
+
+Terlihat lonjakan besar sekitar: Oktober 2024 dan Maret 2025.
+
+Kemungkinan terdapat:
+
+1.  Seasonal sales
+
+2.  Promo campaign
+
+3.  Event tertentu
+
+4.  Momen liburan
+
+**Business Action**
+
+Cari tahu:
+
+-   Promo apa yang berjalan saat itu
+
+-   Produk apa yang paling laku
+
+-   Channel marketing yang digunakan
+
+Kemudian replikasi strategi tersebut.
+
+#### **G. Customer Frequency Analysis**
+
+Menghitung Frekuensi Pelanggan
+
+```{r frq_cus, include=TRUE}
+customer_freq <- new_data %>%
+  group_by(card) %>%
+  summarise(total_transaction = n()) %>%
+  arrange(desc(total_transaction)) %>% 
+  mutate(No = row_number()) %>% 
+  select(No, card, total_transaction)
+customer_freq
+```
+
+**Business Insight**
+
+Dibutuhkan untuk sebagai dasar
+
+-   Mengidentifikasi pelanggan loyal.
+
+-   Dasar pembuatan membership.
+
+-   Menentukan strategi retensi.
+
+**Business Action**
+
+1.  Pembuatan membership bisa diberikan kepada konsumen atau pelanggan yang telah melakukan pembelian minimal sebanyak 50 produk tertentu.
+
+2.  Penentuan harga diskon untuk pembelian produk tertentu.
+
+3.  Berikan exclusive membership untuk pelanggan dengan pembelian \> 100 transaksi.
+
+#### **Advanced Business Analysis**
+
+##### RFM Analysis (Recency, Frequency, Monetary)
+
+Tujuan Mengelompokkan pelanggan berdasarkan perilaku pembelian.
+
+```{r rfm, include=TRUE}
+rfm <- new_data %>%
+  group_by(card) %>%
+  summarise(
+    frequency = n(),
+    monetary = sum(money),
+    recency = max(date)
+  )
+rfm
+```
+
+##### Time Series Forecasting
+
+Tujuan Memprediksi penjualan masa depan.
+
+```{r forecast, include=TRUE}
+library(forecast)
+
+sales_ts <- ts(daily_sales$daily_revenue,
+               frequency = 7)
+
+model <- auto.arima(sales_ts)
+forecast_sales <- forecast(model, h = 14)
+plot(forecast_sales)
+
+```
+
+#### KPI (Key Performance Indicator)
+
+| KPI                   | Deskripsi                |
+|-----------------------|--------------------------|
+| Total Revenue         | Total pendapatan         |
+| Total Transaction     | Total transaksi          |
+| Average Order Value   | Rata-rata pembelian      |
+| Best Seller Product   | Produk terlaris          |
+| Peak Hour             | Jam sibuk                |
+| Customer Retention    | Pelanggan loyal          |
+| Digital Payment Ratio | Rasio pembayaran digital |
+
+## Business Recomendation
+
+#### **A. Product Strategy**
+
+**Jika Latte dan Americano Milk adalah produk terlaris:**
+
+Strategi:
+
+-   Jadikan signature product.
+
+-   Buat promo combo.
+
+-   Tingkatkan visibility di menu.
+
+#### **B. Operational Strategy**
+
+**Jika peak hour pagi:**
+
+Strategi:
+
+-   Tambahkan barista pagi.
+
+-   Persiapkan bahan baku lebih awal.
+
+-   Optimalkan workflow kitchen.
+
+#### **C. Marketing Strategy**
+
+Pembayaran nontunai menjadi kebiasaan pelanggan dalam membeli suatu produk di toko ini, sehingga ke depan, dapat memulai pembayaran nontunai saja. Berikan sebuah merchant agar pelanggan beralih ke nontunai.
+
+Promosi produk Latte dapat dilakukan secara gencar karena *revenue* tertinggi ada pada produk tersebut.
+
+#### **D. Customer Retention**
+
+**Jika terdapat pelanggan repeat order:**
+
+Strategi:
+
+-   Membership.
+
+-   Point reward.
+
+-   Personalized promotion.
+
+## 
